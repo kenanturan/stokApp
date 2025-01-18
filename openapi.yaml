@@ -1,0 +1,298 @@
+openapi: 3.0.0
+info:
+  title: Stok Takip API
+  version: 1.0.0
+  description: Ürün ekleme ve silme işlemleri için REST API
+
+servers:
+  - url: http://localhost:8080
+    description: Geliştirme sunucusu
+
+paths:
+  /api/v1/products:
+    get:
+      summary: Tüm ürünleri listele
+      responses:
+        '200':
+          description: Başarılı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+        '500':
+          description: Sunucu hatası
+    post:
+      summary: Yeni ürün ekle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+      responses:
+        '201':
+          description: Ürün başarıyla oluşturuldu
+        '400':
+          description: Geçersiz istek
+        '500':
+          description: Sunucu hatası
+
+  /api/v1/products/{id}:
+    delete:
+      summary: Ürün sil
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ürün başarıyla silindi
+        '404':
+          description: Ürün bulunamadı
+        '500':
+          description: Sunucu hatası
+
+  /api/v1/sales:
+    get:
+      summary: Tüm satışları listele
+      responses:
+        '200':
+          description: Başarılı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Sale'
+    post:
+      summary: Yeni satış kaydı oluştur
+      description: |
+        Yeni bir satış kaydı oluşturur. 
+        FIFO mantığına göre stok kullanımı yapar:
+        - Aynı ürün adına sahip tüm stokları tarih sırasına göre kullanır
+        - Önce eski tarihli stokları tüketir
+        - Her stok hareketinin kalan miktarını günceller
+        - İlgili ürünlerin stok miktarlarını günceller
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaleInput'
+      responses:
+        '201':
+          description: Satış başarıyla kaydedildi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      sale:
+                        $ref: '#/components/schemas/Sale'
+                      stockUsages:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/StockUsage'
+        '400':
+          description: Geçersiz istek
+        '404':
+          description: Ürün bulunamadı
+        '500':
+          description: Sunucu hatası
+
+  /api/v1/stock-movements:
+    get:
+      summary: Stok hareketlerini listele
+      parameters:
+        - name: productId
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Belirli bir ürünün stok hareketlerini filtrelemek için
+      responses:
+        '200':
+          description: Başarılı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        productId:
+                          type: integer
+                        product:
+                          $ref: '#/components/schemas/Product'
+                        initialQuantity:
+                          type: number
+                        remainingQuantity:
+                          type: number
+                        unitCost:
+                          type: number
+                        movementDate:
+                          type: string
+                          format: date-time
+        '500':
+          description: Sunucu hatası
+
+components:
+  schemas:
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        companyName:
+          type: string
+        category:
+          type: string
+        productName:
+          type: string
+        unit:
+          type: string
+        invoiceNo:
+          type: string
+        invoiceDate:
+          type: string
+          format: date
+        initialStock:
+          type: number
+          minimum: 0
+        currentStock:
+          type: number
+          minimum: 0
+        unitPrice:
+          type: number
+          minimum: 0
+        vat:
+          type: number
+          minimum: 0
+        totalCost:
+          type: number
+          minimum: 0
+
+    Sale:
+      type: object
+      required:
+        - productId
+        - quantity
+        - saleDate
+        - salePrice
+        - customerName
+        - customerPhone
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        productId:
+          type: integer
+        quantity:
+          type: number
+          minimum: 0
+        saleDate:
+          type: string
+          format: date-time
+        salePrice:
+          type: number
+          minimum: 0
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        note:
+          type: string
+        product:
+          allOf:
+            - $ref: '#/components/schemas/Product'
+            - readOnly: true
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+
+    StockMovement:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        productId:
+          type: integer
+        product:
+          $ref: '#/components/schemas/Product'
+        initialQuantity:
+          type: number
+          minimum: 0
+        remainingQuantity:
+          type: number
+          minimum: 0
+        unitCost:
+          type: number
+          minimum: 0
+        movementDate:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+
+    StockUsage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        saleId:
+          type: integer
+        sale:
+          $ref: '#/components/schemas/Sale'
+        stockMovementId:
+          type: integer
+        stockMovement:
+          $ref: '#/components/schemas/StockMovement'
+        usedQuantity:
+          type: number
+          minimum: 0
+        description: |
+          FIFO mantığına göre kullanılan miktar.
+          Bir satışta birden fazla stok hareketi kullanılabilir.
+          Örnek: 16 adetlik satışta;
+          - İlk hareket: 10 adet (tamamı)
+          - İkinci hareket: 6 adet (kalan miktar)
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true 
