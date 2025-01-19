@@ -74,4 +74,42 @@ Stok takip sistemi için ürün ekleme ve silme işlemlerini yönetecek bir REST
 7. Yetersiz stok durumunda satış işlemi yapılmamalıdır
 8. Her satış işleminde kullanılan stok hareketleri kaydedilmelidir
 9. Stok hareketleri FIFO sırasına göre listelenmelidir
-10. Her stok hareketi için kalan miktar güncel olmalıdır 
+10. Her stok hareketi için kalan miktar güncel olmalıdır
+
+### Reçete Yönetimi
+1. Reçete Oluşturma
+   - Reçete adı
+   - Açıklama
+   - Çıktı ürün miktarı
+   - Malzeme listesi:
+     * Ürün ID
+     * Miktar
+     * Birim
+     * Not
+
+2. Reçete Kullanımı
+   - Reçeteye göre üretim planı
+   - FIFO mantığına göre malzeme kullanımı
+   - Üretilen ürün için stok hareketi oluşturma 
+
+## Özellikler
+
+### Temel Özellikler
+- [x] Ürün yönetimi (ekleme, listeleme, silme)
+- [x] Stok yönetimi (giriş, çıkış, listeleme)
+- [x] Satış yönetimi (satış yapma, listeleme)
+- [x] Reçete yönetimi (oluşturma, listeleme)
+- [x] Reçete satışı (reçeteye göre stok düşme)
+
+### Detaylı Özellikler
+
+#### Stok Yönetimi
+- [x] FIFO mantığına göre stok kullanımı
+- [x] Stok hareketlerinin kaydedilmesi
+- [x] Stok bakiyelerinin otomatik güncellenmesi
+
+#### Satış Yönetimi
+- [x] Müşteri bilgileriyle satış kaydı
+- [x] Satış tarihçesi
+- [x] Reçete bazlı satış yapabilme
+- [x] Reçete satışlarında otomatik stok düşümü 

@@ -154,6 +154,139 @@ paths:
         '500':
           description: Sunucu hatası
 
+  /api/v1/recipes:
+    get:
+      summary: Tüm reçeteleri listele
+      responses:
+        '200':
+          description: Başarılı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recipe'
+    
+    post:
+      summary: Yeni reçete oluştur
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipeInput'
+      responses:
+        '201':
+          description: Reçete başarıyla oluşturuldu
+
+  /api/v1/recipes/{id}/produce:
+    post:
+      summary: Reçeteye göre üretim yap
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity:
+                  type: number
+                  description: Üretilecek miktar
+                date:
+                  type: string
+                  format: date-time
+
+  /recipe-sales:
+    post:
+      summary: Reçete satışı oluştur
+      tags:
+        - sales
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - recipeId
+                - quantity
+                - saleDate
+                - salePrice
+                - customerName
+                - customerPhone
+              properties:
+                recipeId:
+                  type: integer
+                  format: uint
+                  description: Satılacak reçetenin ID'si
+                quantity:
+                  type: number
+                  format: float64
+                  minimum: 0
+                  description: Satış miktarı
+                saleDate:
+                  type: string
+                  format: date-time
+                  description: Satış tarihi
+                salePrice:
+                  type: number
+                  format: float64
+                  minimum: 0
+                  description: Satış fiyatı
+                customerName:
+                  type: string
+                  description: Müşteri adı
+                customerPhone:
+                  type: string
+                  description: Müşteri telefonu
+                note:
+                  type: string
+                  description: Satış notu
+      responses:
+        201:
+          description: Reçete satışı başarıyla oluşturuldu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      sale:
+                        $ref: '#/components/schemas/Sale'
+                      recipe:
+                        $ref: '#/components/schemas/Recipe'
+                      message:
+                        type: string
+        400:
+          description: Geçersiz istek
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        404:
+          description: Reçete bulunamadı
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        500:
+          description: Sunucu hatası
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   schemas:
     Product:
@@ -233,6 +366,13 @@ components:
           type: string
           format: date-time
           readOnly: true
+        recipeId:
+          type: integer
+          format: uint
+          nullable: true
+        recipe:
+          $ref: '#/components/schemas/Recipe'
+          nullable: true
 
     StockMovement:
       type: object

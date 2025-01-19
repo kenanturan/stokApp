@@ -27,6 +27,8 @@ func InitDB() (*gorm.DB, error) {
 		&models.Sale{},
 		&models.StockMovement{},
 		&models.StockUsage{},
+		&models.Recipe{},
+		&models.RecipeItem{},
 	)
 	if err != nil {
 		log.Printf("AutoMigrate hatası: %v", err)

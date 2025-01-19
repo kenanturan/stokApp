@@ -34,3 +34,26 @@
 - [x] Satış kaydı oluşturma
 - [x] FIFO mantığına göre stok düşme
 - [x] Çoklu partiden satış yapabilme 
+
+### Sprint 1
+- [x] Temel proje yapısı oluşturuldu
+- [x] Veritabanı şeması tasarlandı
+- [x] API endpoint'leri planlandı
+
+### Sprint 2
+- [x] Ürün CRUD işlemleri
+- [x] Stok hareketi işlemleri
+- [x] FIFO mantığına göre stok kullanımı
+
+### Sprint 3
+- [x] Satış işlemleri
+- [x] Reçete yönetimi
+- [x] Reçete satış sistemi
+- [x] Reçete satışlarında otomatik stok düşümü
+
+## Yapılacaklar
+
+### Gelecek Sprint
+- [ ] Reçete bazlı satış raporları
+- [ ] Stok raporlama sistemi
+- [ ] Gelişmiş filtreleme özellikleri 
