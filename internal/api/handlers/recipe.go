@@ -105,3 +105,29 @@ func (h *RecipeHandler) ProduceFromRecipe(c *gin.Context) {
 		"date":     input.Date,
 	})
 }
+
+func (h *RecipeHandler) DeleteRecipe(c *gin.Context) {
+	id := c.Param("id")
+
+	// Transaction başlat
+	tx := h.db.Begin()
+
+	// Reçeteyi bul
+	var recipe models.Recipe
+	if err := tx.First(&recipe, id).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Reçete bulunamadı"})
+		return
+	}
+
+	// Reçeteyi sil (RecipeItems cascade ile otomatik silinecek)
+	if err := tx.Delete(&recipe).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Reçete silinemedi"})
+		return
+	}
+
+	tx.Commit()
+
+	c.JSON(http.StatusOK, gin.H{"message": "Reçete başarıyla silindi"})
+}

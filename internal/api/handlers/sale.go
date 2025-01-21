@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"stock-api/internal/models"
@@ -32,23 +33,33 @@ func NewSaleHandler(db *gorm.DB) *SaleHandler {
 func (h *SaleHandler) CreateSale(c *gin.Context) {
 	var sale models.Sale
 	if err := c.ShouldBindJSON(&sale); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Geçersiz veri formatı"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Geçersiz veri formatı: %v", err)})
+		// Debug için request body'yi logla
+		var body map[string]interface{}
+		c.ShouldBindJSON(&body)
+		log.Printf("Frontend'den gelen hatalı istek: %+v", body)
+		log.Printf("Binding hatası: %v", err)
 		return
 	}
+
+	// Başarılı binding sonrası gelen veriyi logla
+	log.Printf("Frontend'den gelen geçerli istek: %+v", sale)
 
 	// Transaction başlat
 	tx := h.db.Begin()
 
-	// 1. Ürün adını al
-	var productName string
+	// 1. Ürünü al
+	var product models.Product
 	if err := tx.Model(&models.Product{}).
-		Select("product_name").
 		Where("id = ?", sale.ProductID).
-		First(&productName).Error; err != nil {
+		First(&product).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Ürün bulunamadı"})
 		return
 	}
+
+	// Fiyatları hesapla
+	sale.CalculatePrices()
 
 	// 2. Bu ürün adına sahip tüm stok hareketlerini getir
 	var movements []models.StockMovement
@@ -284,4 +295,82 @@ func (h *SaleHandler) CreateRecipeSale(c *gin.Context) {
 		"recipe":  recipe,
 		"message": "Reçete satışı başarılı",
 	}})
+}
+
+func (h *SaleHandler) DeleteSale(c *gin.Context) {
+	id := c.Param("id")
+
+	// Transaction başlat
+	tx := h.db.Begin()
+
+	// Satışı bul
+	var sale models.Sale
+	if err := tx.First(&sale, id).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Satış bulunamadı"})
+		return
+	}
+
+	// Stok kullanımlarını bul ve tarihe göre sırala
+	var usages []struct {
+		models.StockUsage
+		MovementDate time.Time
+	}
+	if err := tx.Table("stock_usages").
+		Select("stock_usages.*, stock_movements.movement_date").
+		Joins("JOIN stock_movements ON stock_movements.id = stock_usages.stock_movement_id").
+		Where("stock_usages.sale_id = ?", id).
+		Order("stock_movements.movement_date DESC"). // En yeni tarihten başla
+		Find(&usages).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok kullanımları alınamadı"})
+		return
+	}
+
+	// Her stok kullanımı için stokları geri al (yeni tarihten eskiye doğru)
+	for _, usage := range usages {
+		// Stok hareketini ve ürün ID'sini al
+		var stockMovement models.StockMovement
+		if err := tx.First(&stockMovement, usage.StockMovementID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok hareketi bulunamadı"})
+			return
+		}
+
+		// Stok hareketini güncelle
+		if err := tx.Model(&models.StockMovement{}).
+			Where("id = ?", usage.StockMovementID).
+			Update("remaining_quantity", gorm.Expr("remaining_quantity + ?", usage.UsedQuantity)).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok hareketi güncellenemedi"})
+			return
+		}
+
+		// Ürün stoğunu güncelle
+		if err := tx.Model(&models.Product{}).
+			Where("id = ?", stockMovement.ProductID). // Stok hareketinin ait olduğu ürüne iade et
+			Update("current_stock", gorm.Expr("current_stock + ?", usage.UsedQuantity)).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ürün stoğu güncellenemedi"})
+			return
+		}
+	}
+
+	// Stok kullanımlarını sil
+	if err := tx.Where("sale_id = ?", id).Delete(&models.StockUsage{}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok kullanımları silinemedi"})
+		return
+	}
+
+	// Satışı sil
+	if err := tx.Delete(&sale).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Satış silinemedi"})
+		return
+	}
+
+	tx.Commit()
+
+	c.JSON(http.StatusOK, gin.H{"message": "Satış başarıyla silindi"})
 }

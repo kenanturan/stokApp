@@ -9,6 +9,7 @@ type Recipe struct {
 	Name           string       `json:"name" binding:"required"`
 	Description    string       `json:"description"`
 	OutputQuantity float64      `json:"outputQuantity" binding:"required,gt=0"`
+	SuggestedPrice float64      `json:"suggestedPrice" binding:"omitempty,gte=0"`
 	RecipeItems    []RecipeItem `gorm:"constraint:OnDelete:CASCADE;" json:"recipeItems"`
 	CreatedAt      time.Time    `json:"createdAt"`
 	UpdatedAt      time.Time    `json:"updatedAt"`

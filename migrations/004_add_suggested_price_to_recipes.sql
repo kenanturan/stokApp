@@ -1,0 +1,1 @@
+ALTER TABLE recipes ADD COLUMN suggested_price DECIMAL(10,2) DEFAULT 0; 

@@ -112,6 +112,28 @@ paths:
           description: Ürün bulunamadı
         '500':
           description: Sunucu hatası
+    delete:
+      summary: Satış kaydını sil
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Satış başarıyla silindi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        404:
+          description: Satış bulunamadı
+        500:
+          description: Sunucu hatası
 
   /api/v1/stock-movements:
     get:
@@ -287,6 +309,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/v1/recipes/{id}:
+    delete:
+      summary: Reçete sil
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Reçete başarıyla silindi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '404':
+          description: Reçete bulunamadı
+        '500':
+          description: Sunucu hatası
+
 components:
   schemas:
     Product:
@@ -373,6 +419,34 @@ components:
         recipe:
           $ref: '#/components/schemas/Recipe'
           nullable: true
+        discount:
+          type: number
+          format: float64
+          minimum: 0
+          maximum: 100
+          default: 0
+          description: İskonto oranı (%)
+        vat:
+          type: number
+          format: float64
+          minimum: 0
+          default: 20
+          description: KDV oranı (%)
+        netPrice:
+          type: number
+          format: float64
+          readOnly: true
+          description: Net fiyat (iskonto düşülmüş)
+        vatAmount:
+          type: number
+          format: float64
+          readOnly: true
+          description: KDV tutarı
+        totalPrice:
+          type: number
+          format: float64
+          readOnly: true
+          description: Genel toplam (KDV dahil)
 
     StockMovement:
       type: object
@@ -435,4 +509,26 @@ components:
         updatedAt:
           type: string
           format: date-time
-          readOnly: true 
+          readOnly: true
+
+    Recipe:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        description:
+          type: string
+        outputQuantity:
+          type: number
+          minimum: 0
+        suggestedPrice:
+          type: number
+          minimum: 0
+          description: Önerilen satış fiyatı
+        recipeItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecipeItem' 

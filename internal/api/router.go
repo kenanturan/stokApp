@@ -18,6 +18,7 @@ func SetupRouter(v1 *gin.RouterGroup, db *gorm.DB) {
 	saleHandler := handlers.NewSaleHandler(db)
 	v1.GET("/sales", saleHandler.GetSales)
 	v1.POST("/sales", saleHandler.CreateSale)
+	v1.DELETE("/sales/:id", saleHandler.DeleteSale)
 	v1.POST("/recipe-sales", saleHandler.CreateRecipeSale)
 
 	// Stock movement handler
@@ -28,5 +29,6 @@ func SetupRouter(v1 *gin.RouterGroup, db *gorm.DB) {
 	recipeHandler := handlers.NewRecipeHandler(db)
 	v1.GET("/recipes", recipeHandler.GetRecipes)
 	v1.POST("/recipes", recipeHandler.CreateRecipe)
+	v1.DELETE("/recipes/:id", recipeHandler.DeleteRecipe)
 	v1.POST("/recipes/:id/produce", recipeHandler.ProduceFromRecipe)
 }
