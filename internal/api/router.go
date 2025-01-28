@@ -10,6 +10,7 @@ import (
 func SetupRouter(v1 *gin.RouterGroup, db *gorm.DB) {
 	// Product handler
 	productHandler := handlers.NewProductHandler(db)
+	v1.GET("/products/average-price", productHandler.GetAveragePrice)
 	v1.GET("/products", productHandler.GetProducts)
 	v1.POST("/products", productHandler.CreateProduct)
 	v1.DELETE("/products/:id", productHandler.DeleteProduct)

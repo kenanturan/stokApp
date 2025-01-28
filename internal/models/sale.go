@@ -21,6 +21,7 @@ type Sale struct {
 	CustomerName  string    `json:"customerName" binding:"required"`
 	CustomerPhone string    `json:"customerPhone" binding:"required"`
 	Note          string    `json:"note"`
+	UnitCost      float64   `json:"unitCost" binding:"required,gte=0"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 }

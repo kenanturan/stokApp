@@ -333,6 +333,43 @@ paths:
         '500':
           description: Sunucu hatası
 
+  /api/v1/products/average-price:
+    get:
+      summary: Ürün adına göre ortalama fiyat hesapla
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Ürün adı
+      responses:
+        '200':
+          description: Başarılı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      productName:
+                        type: string
+                      averagePrice:
+                        type: number
+                        description: Stok ağırlıklı ortalama fiyat
+                      totalStock:
+                        type: number
+                        description: Toplam stok miktarı
+                      totalStockValue:
+                        type: number
+                        description: Toplam stok değeri
+        '400':
+          description: Geçersiz istek
+        '500':
+          description: Sunucu hatası
+
 components:
   schemas:
     Product:

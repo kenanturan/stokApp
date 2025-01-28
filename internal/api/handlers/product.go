@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"log"
+	"math"
 	"net/http"
 	"stock-api/internal/models"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -93,4 +96,123 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": products})
+}
+
+func (h *ProductHandler) GetAveragePrice(c *gin.Context) {
+	productName := c.Query("name")
+	quantity := c.DefaultQuery("quantity", "0") // Opsiyonel satış miktarı
+
+	if productName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ürün adı gerekli"})
+		return
+	}
+
+	// Satış miktarını parse et
+	saleQuantity, err := strconv.ParseFloat(quantity, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Geçersiz miktar"})
+		return
+	}
+
+	// Stok hareketlerini FIFO sırasına göre al
+	var movements []struct {
+		RemainingQuantity float64
+		UnitCost          float64
+		MovementDate      time.Time
+		ProductName       string
+	}
+
+	err = h.db.Raw(`
+		SELECT sm.remaining_quantity, sm.unit_cost, sm.movement_date, p.product_name
+		FROM stock_movements sm
+		JOIN products p ON p.id = sm.product_id
+		WHERE p.product_name = ?
+		AND sm.remaining_quantity > 0
+		ORDER BY sm.created_at ASC
+	`, productName).Scan(&movements).Error
+
+	// Debug için hareketleri logla
+	log.Printf("SQL Parametreleri: %s", productName)
+	log.Printf("Toplam hareket sayısı: %d", len(movements))
+	for i, m := range movements {
+		log.Printf("Hareket %d: Ürün=%s, Miktar=%.2f, Maliyet=%.2f, Tarih=%v",
+			i+1, m.ProductName, m.RemainingQuantity, m.UnitCost, m.MovementDate)
+	}
+
+	// Debug için toplam stok kontrolü
+	var dbStock float64
+	err = h.db.Raw(`
+		SELECT COALESCE(SUM(remaining_quantity), 0)
+		FROM stock_movements sm
+		JOIN products p ON p.id = sm.product_id
+		WHERE p.product_name = ?
+		AND sm.remaining_quantity > 0
+	`, productName).Scan(&dbStock).Error
+	log.Printf("Veritabanındaki toplam stok: %.2f", dbStock)
+
+	// FIFO mantığına göre hesaplama
+	var totalStock float64
+	var totalValue float64
+	var nextFIFOCost float64
+	var fifoValue float64 // Satış miktarına göre FIFO değeri
+	var remainingQty float64 = saleQuantity
+
+	for _, m := range movements {
+		log.Printf("FIFO Hesaplama - Kalan Miktar: %.2f, Kullanılacak: %.2f, Birim Maliyet: %.2f",
+			remainingQty, math.Min(remainingQty, m.RemainingQuantity), m.UnitCost)
+
+		totalStock += m.RemainingQuantity
+		totalValue += m.RemainingQuantity * m.UnitCost
+
+		// Bir sonraki birim FIFO maliyeti
+		if nextFIFOCost == 0 && m.RemainingQuantity > 0 {
+			nextFIFOCost = m.UnitCost
+		}
+
+		// Satış miktarına göre FIFO hesaplama
+		if remainingQty > 0 {
+			useQty := math.Min(remainingQty, m.RemainingQuantity)
+			fifoValue += useQty * m.UnitCost
+			remainingQty -= useQty
+			log.Printf("FIFO Değer Eklendi: %.2f × %.2f = %.2f, Toplam: %.2f",
+				useQty, m.UnitCost, useQty*m.UnitCost, fifoValue)
+		}
+	}
+
+	var result struct {
+		AveragePrice    float64
+		TotalStock      float64
+		TotalStockValue float64
+		NextFIFOCost    float64
+		FIFOCost        float64 // Satış miktarına göre ortalama FIFO maliyeti
+	}
+
+	if totalStock > 0 {
+		result.AveragePrice = totalValue / totalStock
+	}
+
+	if saleQuantity > totalStock {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Yetersiz stok"})
+		return
+	}
+
+	if saleQuantity > 0 && saleQuantity <= totalStock {
+		result.FIFOCost = fifoValue / saleQuantity
+	}
+
+	result.TotalStock = totalStock
+	result.TotalStockValue = totalValue
+	result.NextFIFOCost = nextFIFOCost
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"productName":     productName,
+			"averagePrice":    result.AveragePrice,
+			"totalStock":      result.TotalStock,
+			"totalStockValue": result.TotalStockValue,
+			"nextFIFOCost":    result.NextFIFOCost,
+			"fifoCost":        result.FIFOCost,
+			"saleQuantity":    saleQuantity,
+		},
+	})
 }
