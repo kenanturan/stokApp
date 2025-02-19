@@ -131,3 +131,19 @@ func (h *RecipeHandler) DeleteRecipe(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Reçete başarıyla silindi"})
 }
+
+func (h *RecipeHandler) GetRecipe(c *gin.Context) {
+	recipeID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Geçersiz reçete ID"})
+		return
+	}
+
+	var recipe models.Recipe
+	if err := h.db.Preload("RecipeItems.Product").First(&recipe, recipeID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Reçete bulunamadı"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": recipe})
+}

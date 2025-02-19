@@ -1,12 +1,14 @@
 package handlers
 
 import (
-	"fmt"
-	"log"
+	"bytes"
+	"io"
 	"math"
 	"net/http"
 	"stock-api/internal/models"
 	"time"
+
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -17,13 +19,13 @@ type SaleHandler struct {
 }
 
 type RecipeSaleInput struct {
-	RecipeID      uint      `json:"recipeId" binding:"required"`
-	Quantity      float64   `json:"quantity" binding:"required,gt=0"`
-	SaleDate      time.Time `json:"saleDate" binding:"required"`
-	SalePrice     float64   `json:"salePrice" binding:"required,gt=0"`
-	CustomerName  string    `json:"customerName" binding:"required"`
-	CustomerPhone string    `json:"customerPhone" binding:"required"`
-	Note          string    `json:"note"`
+	RecipeID  uint      `json:"recipeId" binding:"required"`
+	Quantity  float64   `json:"quantity" binding:"required,gt=0"`
+	SaleDate  time.Time `json:"saleDate" binding:"required"`
+	SalePrice float64   `json:"salePrice" binding:"required,gt=0"`
+	Note      string    `json:"note"`
+	Discount  float64   `json:"discount"`
+	VAT       float64   `json:"vat"`
 }
 
 func NewSaleHandler(db *gorm.DB) *SaleHandler {
@@ -48,68 +50,90 @@ func (h *SaleHandler) CreateSale(c *gin.Context) {
 	// Transaction başlat
 	tx := h.db.Begin()
 
-	// Stok hareketlerini FIFO sırasına göre al
-	var movements []models.StockMovement
+	// Önce ürünü kontrol et
 	var product models.Product
-	if err := tx.Model(&models.Product{}).
-		Where("id = ?", sale.ProductID).
-		First(&product).Error; err != nil {
+	if err := tx.First(&product, sale.ProductID).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusNotFound, gin.H{"error": "Ürün bulunamadı"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ürün bulunamadı"})
 		return
 	}
 
-	productName := product.ProductName
+	// FIFO için stok hareketlerini al
+	var movements []models.StockMovement
+	query := tx.Debug().
+		Raw(`
+			SELECT sm.* 
+			FROM stock_movements sm
+			JOIN products p1 ON sm.product_id = p1.id
+			JOIN products p2 ON p1.product_name = p2.product_name
+			WHERE p2.id = ?
+			AND sm.remaining_quantity > 0
+			ORDER BY sm.movement_date ASC
+		`, sale.ProductID)
 
-	// Debug için log ekleyelim
-	log.Printf("Ürün adı: %s", productName)
+	log.Printf("SQL Sorgusu: %v", query.Statement.SQL.String())
+	log.Printf("Parametreler: %v", query.Statement.Vars)
 
-	if err := tx.Joins("JOIN products ON products.id = stock_movements.product_id").
-		Where("products.product_name = ? AND remaining_quantity > 0", productName).
-		Order("movement_date asc").
-		Preload("Product").
-		Find(&movements).Error; err != nil {
+	if err := query.Scan(&movements).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok hareketleri alınamadı"})
 		return
 	}
 
-	// Debug için log ekleyelim
-	log.Printf("Bulunan stok hareketi sayısı: %d", len(movements))
-	for i, m := range movements {
-		log.Printf("Stok hareketi %d: ID=%d, Kalan=%f, Ürün=%s", i+1, m.ID, m.RemainingQuantity, m.Product.ProductName)
-	}
+	// Debug için stok hareketlerini logla
+	log.Printf("Bulunan stok hareketleri: %+v", movements)
+	log.Printf("Toplam hareket sayısı: %d", len(movements))
 
 	// Toplam stok kontrolü
 	var totalStock float64
 	for _, m := range movements {
-		if m.RemainingQuantity > 0 {
-			totalStock += m.RemainingQuantity
-			log.Printf("Stok hareketi ID=%d, Kalan=%f eklendi, Toplam=%f", m.ID, m.RemainingQuantity, totalStock)
-		}
+		totalStock += m.RemainingQuantity
+		log.Printf("Hareket ID: %d, Product ID: %d, Kalan miktar: %f, Ürün: %s",
+			m.ID, m.ProductID, m.RemainingQuantity, product.ProductName)
 	}
 
-	// Debug için log ekleyelim
 	log.Printf("Toplam stok: %f, İstenen miktar: %f", totalStock, sale.Quantity)
 
-	// Yetersiz stok kontrolü
 	if totalStock < sale.Quantity {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Yetersiz stok"})
 		return
 	}
 
-	// Önce satışı kaydet
+	// Satışı kaydet
 	if err := tx.Create(&sale).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Satış kaydedilemedi"})
 		return
 	}
 
+	// Satış ve ürün detaylarını yükle
+	var completeSale models.Sale
+	if err := tx.Debug().
+		Model(&models.Sale{}).
+		Where("id = ?", sale.ID).
+		First(&completeSale).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Satış detayları alınamadı"})
+		return
+	}
+
+	// Product bilgilerini set et
+	completeSale.Product = product
+
+	// Debug için satış detaylarını logla
+	log.Printf("Ürün: %+v", product)
+	log.Printf("Satış ID: %d", completeSale.ID)
+	log.Printf("Ürün ID: %d", completeSale.ProductID)
+	log.Printf("Product: %+v", completeSale.Product)
+	log.Printf("Satış detayları: %+v", completeSale)
+
 	// FIFO mantığına göre stok düşümü
 	remaining := sale.Quantity
+	var stockUsages []models.StockUsage
+
 	for _, m := range movements {
-		if remaining <= 0 || m.RemainingQuantity <= 0 {
+		if remaining <= 0 {
 			break
 		}
 
@@ -128,11 +152,19 @@ func (h *SaleHandler) CreateSale(c *gin.Context) {
 			return
 		}
 
+		// Stok kullanımını tam olarak yükle
+		if err := tx.First(&usage, usage.ID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok kullanımı detayları alınamadı"})
+			return
+		}
+
+		stockUsages = append(stockUsages, usage)
+
 		// Stok hareketini güncelle
-		newRemainingQty := m.RemainingQuantity - use
 		if err := tx.Model(&models.StockMovement{}).
 			Where("id = ?", m.ID).
-			Update("remaining_quantity", newRemainingQty).Error; err != nil {
+			Update("remaining_quantity", gorm.Expr("remaining_quantity - ?", use)).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok hareketi güncellenemedi"})
 			return
@@ -152,145 +184,174 @@ func (h *SaleHandler) CreateSale(c *gin.Context) {
 
 	tx.Commit()
 
-	c.JSON(http.StatusCreated, gin.H{"data": sale})
+	// Fiyatları hesapla
+	completeSale.CalculatePrices()
+
+	// Response'u direkt olarak yaz
+	c.Set("response", completeSale)
+	c.Writer.WriteHeader(http.StatusCreated)
 }
 
 func (h *SaleHandler) GetSales(c *gin.Context) {
 	var sales []models.Sale
 
-	if err := h.db.Preload("Product").Find(&sales).Error; err != nil {
+	// Tüm satışları yükle
+	if err := h.db.Preload("Product").
+		Preload("Recipe").
+		Find(&sales).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Satışlar listelenemedi"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": sales})
+	// Her satış için düzenleme yap
+	for i := range sales {
+		// Eğer bu bir reçete satışı ise
+		if sales[i].RecipeID != nil && sales[i].Recipe != nil {
+			// Ürün yerine reçete adını göster
+			sales[i].Product = models.Product{
+				Category:    "Reçete",
+				ProductName: "Reçete: " + sales[i].Recipe.Name,
+			}
+		}
+		sales[i].CalculatePrices()
+	}
+
+	// Response'u middleware'e bırak
+	c.Set("response", gin.H{
+		"sales": sales,
+	})
 }
 
 func (h *SaleHandler) CreateRecipeSale(c *gin.Context) {
-	var input RecipeSaleInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Geçersiz veri formatı"})
+	var recipeSale models.RecipeSale
+
+	// Request body'yi logla
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		log.Printf("Body okuma hatası: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Request body okunamadı"})
 		return
 	}
+	log.Printf("Gelen request body: %s", string(body))
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	if err := c.ShouldBindJSON(&recipeSale); err != nil {
+		log.Printf("Binding hatası: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Geçersiz veri formatı: " + err.Error()})
+		return
+	}
+
+	log.Printf("Reçete satışı verisi: %+v", recipeSale)
 
 	// Transaction başlat
 	tx := h.db.Begin()
 
 	// Reçeteyi getir
 	var recipe models.Recipe
-	if err := tx.Preload("RecipeItems.Product").First(&recipe, input.RecipeID).Error; err != nil {
+	if err := tx.Preload("RecipeItems").
+		Preload("RecipeItems.Product").
+		First(&recipe, recipeSale.RecipeID).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Reçete bulunamadı"})
 		return
 	}
 
-	// Ana ürünü belirle (ilk ürünü ana ürün olarak kabul ediyoruz)
-	if len(recipe.RecipeItems) == 0 {
-		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Reçetede ürün bulunamadı"})
-		return
-	}
-	mainProduct := recipe.RecipeItems[0].Product
+	log.Printf("Bulunan reçete: %+v", recipe)
 
-	// FIFO maliyetini hesapla
-	var totalFIFOCost float64
+	// Stok kontrolü yap
 	for _, item := range recipe.RecipeItems {
-		var movements []models.StockMovement
-		var fifoValue float64
-		remainingQty := item.Quantity * input.Quantity
+		itemQuantity := item.Quantity * recipeSale.Quantity
 
-		// FIFO sırasına göre stok hareketlerini al
-		if err := tx.Joins("JOIN products ON products.id = stock_movements.product_id").
-			Where("products.product_name = ? AND remaining_quantity > 0", item.Product.ProductName).
-			Order("movement_date asc").
-			Find(&movements).Error; err != nil {
+		// FIFO için stok hareketlerini al
+		var movements []models.StockMovement
+		query := tx.Debug().
+			Raw(`
+				SELECT sm.* 
+				FROM stock_movements sm
+				JOIN products p1 ON sm.product_id = p1.id
+				JOIN products p2 ON p1.product_name = p2.product_name
+				WHERE p2.id = ?
+				AND sm.remaining_quantity > 0
+				ORDER BY sm.movement_date ASC
+			`, item.ProductID)
+
+		log.Printf("SQL Sorgusu: %v", query.Statement.SQL.String())
+		log.Printf("Parametreler: %v", query.Statement.Vars)
+
+		if err := query.Scan(&movements).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok hareketleri alınamadı"})
 			return
 		}
 
-		// FIFO maliyetini hesapla
+		// Debug için stok hareketlerini logla
+		log.Printf("Bulunan stok hareketleri: %+v", movements)
+		log.Printf("Toplam hareket sayısı: %d", len(movements))
+
+		// Toplam stok kontrolü
+		var totalStock float64
 		for _, m := range movements {
-			if remainingQty <= 0 {
-				break
-			}
-			useQty := math.Min(remainingQty, m.RemainingQuantity)
-			fifoValue += useQty * m.UnitCost
-			remainingQty -= useQty
+			totalStock += m.RemainingQuantity
+			log.Printf("Hareket ID: %d, Kalan miktar: %f", m.ID, m.RemainingQuantity)
 		}
 
-		totalFIFOCost += fifoValue
+		log.Printf("Toplam stok: %f, İstenen miktar: %f", totalStock, itemQuantity)
+
+		if totalStock < itemQuantity {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Yetersiz stok: " + item.Product.ProductName})
+			return
+		}
 	}
 
-	// Birim FIFO maliyeti hesapla
-	unitFIFOCost := totalFIFOCost / input.Quantity
-
-	// Satış kaydı oluştur
+	// Tek bir satış kaydı oluştur
 	sale := models.Sale{
-		ProductID:     mainProduct.ID,
-		RecipeID:      &input.RecipeID,
-		Quantity:      input.Quantity,
-		SaleDate:      input.SaleDate,
-		SalePrice:     input.SalePrice,
-		CustomerName:  input.CustomerName,
-		CustomerPhone: input.CustomerPhone,
-		Note:          input.Note,
-		UnitCost:      unitFIFOCost, // FIFO maliyetini kaydet
+		RecipeID:  &recipe.ID,
+		Quantity:  recipeSale.Quantity,
+		SaleDate:  recipeSale.SaleDate,
+		SalePrice: recipeSale.SalePrice,
+		Note:      recipeSale.Note,
+		Discount:  recipeSale.Discount,
+		VAT:       recipeSale.VAT,
+		Product: models.Product{ // Reçete bilgilerini Product'a ekle
+			Category:    "Reçete",
+			ProductName: "Reçete: " + recipe.Name,
+		},
 	}
 
+	// Satışı kaydet
 	if err := tx.Create(&sale).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Satış kaydedilemedi"})
 		return
 	}
 
-	// Her malzeme için stok kontrolü yap
+	// Stok düşümlerini yap
+	var allStockUsages []models.StockUsage
 	for _, item := range recipe.RecipeItems {
-		var totalStock float64
-		var movements []models.StockMovement
+		itemQuantity := item.Quantity * recipeSale.Quantity
 
-		// Aynı ürün adına sahip tüm stokları getir
-		if err := tx.Joins("JOIN products ON products.id = stock_movements.product_id").
-			Where("products.product_name = ? AND remaining_quantity > 0", item.Product.ProductName).
-			Order("movement_date asc").
-			Find(&movements).Error; err != nil {
+		// FIFO için stok hareketlerini al
+		var movements []models.StockMovement
+		query := tx.Debug().
+			Raw(`
+				SELECT sm.* 
+				FROM stock_movements sm
+				JOIN products p1 ON sm.product_id = p1.id
+				JOIN products p2 ON p1.product_name = p2.product_name
+				WHERE p2.id = ?
+				AND sm.remaining_quantity > 0
+				ORDER BY sm.movement_date ASC
+			`, item.ProductID)
+
+		if err := query.Scan(&movements).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok hareketleri alınamadı"})
 			return
 		}
 
-		// Toplam stok kontrolü
-		for _, m := range movements {
-			if m.RemainingQuantity > 0 {
-				totalStock += m.RemainingQuantity
-				log.Printf("Stok hareketi ID=%d, Kalan=%f eklendi, Toplam=%f", m.ID, m.RemainingQuantity, totalStock)
-			}
-		}
-
-		// Gerekli miktar = Reçetedeki miktar * Satış miktarı
-		requiredStock := item.Quantity * input.Quantity
-		if totalStock < requiredStock {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s için yetersiz stok", item.Product.ProductName)})
-			return
-		}
-	}
-
-	// Her malzeme için stok kullan
-	for _, item := range recipe.RecipeItems {
-		remaining := item.Quantity * input.Quantity
-		var movements []models.StockMovement
-
-		// FIFO mantığına göre stok kullan
-		if err := tx.Joins("JOIN products ON products.id = stock_movements.product_id").
-			Where("products.product_name = ? AND remaining_quantity > 0", item.Product.ProductName).
-			Order("movement_date asc").
-			Find(&movements).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok hareketleri alınamadı"})
-			return
-		}
-
+		// FIFO mantığına göre stok düşümü
+		remaining := itemQuantity
 		for _, m := range movements {
 			if remaining <= 0 {
 				break
@@ -304,17 +365,19 @@ func (h *SaleHandler) CreateRecipeSale(c *gin.Context) {
 				StockMovementID: m.ID,
 				UsedQuantity:    use,
 			}
+
 			if err := tx.Create(&usage).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok kullanımı kaydedilemedi"})
 				return
 			}
 
+			allStockUsages = append(allStockUsages, usage)
+
 			// Stok hareketini güncelle
-			newRemainingQty := m.RemainingQuantity - use
 			if err := tx.Model(&models.StockMovement{}).
 				Where("id = ?", m.ID).
-				Update("remaining_quantity", newRemainingQty).Error; err != nil {
+				Update("remaining_quantity", gorm.Expr("remaining_quantity - ?", use)).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Stok hareketi güncellenemedi"})
 				return
@@ -335,14 +398,13 @@ func (h *SaleHandler) CreateRecipeSale(c *gin.Context) {
 
 	tx.Commit()
 
-	// İlişkili verileri yükle
-	h.db.Preload("Product").First(&sale, sale.ID)
-
-	c.JSON(http.StatusCreated, gin.H{"data": gin.H{
-		"sale":    sale,
-		"recipe":  recipe,
-		"message": "Reçete satışı başarılı",
-	}})
+	// Response'u hazırla
+	c.Set("response", gin.H{
+		"sale":        sale,
+		"recipe":      recipe,
+		"stockUsages": allStockUsages,
+	})
+	c.Set("status", http.StatusCreated)
 }
 
 func (h *SaleHandler) DeleteSale(c *gin.Context) {

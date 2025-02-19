@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
-  title: Stok Takip API
+  title: Stock API
   version: 1.0.0
-  description: Ürün ekleme ve silme işlemleri için REST API
+  description: Stok ve satış yönetimi API'si
 
 servers:
   - url: http://localhost:8080
@@ -64,25 +64,10 @@ paths:
       summary: Tüm satışları listele
       responses:
         '200':
-          description: Başarılı
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Sale'
+          description: Satışlar başarıyla listelendi
     post:
-      summary: Yeni satış kaydı oluştur
-      description: |
-        Yeni bir satış kaydı oluşturur. 
-        FIFO mantığına göre stok kullanımı yapar:
-        - Aynı ürün adına sahip tüm stokları tarih sırasına göre kullanır
-        - Önce eski tarihli stokları tüketir
-        - Her stok hareketinin kalan miktarını günceller
-        - İlgili ürünlerin stok miktarlarını günceller
+      summary: Yeni satış oluştur
+      description: FIFO mantığına göre stok düşümü yaparak satış oluşturur
       requestBody:
         required: true
         content:
@@ -91,49 +76,21 @@ paths:
               $ref: '#/components/schemas/SaleInput'
       responses:
         '201':
-          description: Satış başarıyla kaydedildi
+          description: Satış başarıyla oluşturuldu
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: object
-                    properties:
-                      sale:
-                        $ref: '#/components/schemas/Sale'
-                      stockUsages:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/StockUsage'
+                $ref: '#/components/schemas/SaleResponse'
         '400':
-          description: Geçersiz istek
-        '404':
-          description: Ürün bulunamadı
-        '500':
-          description: Sunucu hatası
-    delete:
-      summary: Satış kaydını sil
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        200:
-          description: Satış başarıyla silindi
+          description: Geçersiz istek veya yetersiz stok
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  message:
+                  error:
                     type: string
-        404:
-          description: Satış bulunamadı
-        500:
-          description: Sunucu hatası
+                    example: "Yetersiz stok"
 
   /api/v1/stock-movements:
     get:
@@ -199,7 +156,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RecipeInput'
+              $ref: '#/components/schemas/Recipe'
       responses:
         '201':
           description: Reçete başarıyla oluşturuldu
@@ -227,54 +184,17 @@ paths:
                   type: string
                   format: date-time
 
-  /recipe-sales:
+  /api/v1/sales/recipe:
     post:
       summary: Reçete satışı oluştur
-      tags:
-        - sales
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - recipeId
-                - quantity
-                - saleDate
-                - salePrice
-                - customerName
-                - customerPhone
-              properties:
-                recipeId:
-                  type: integer
-                  format: uint
-                  description: Satılacak reçetenin ID'si
-                quantity:
-                  type: number
-                  format: float64
-                  minimum: 0
-                  description: Satış miktarı
-                saleDate:
-                  type: string
-                  format: date-time
-                  description: Satış tarihi
-                salePrice:
-                  type: number
-                  format: float64
-                  minimum: 0
-                  description: Satış fiyatı
-                customerName:
-                  type: string
-                  description: Müşteri adı
-                customerPhone:
-                  type: string
-                  description: Müşteri telefonu
-                note:
-                  type: string
-                  description: Satış notu
+              $ref: '#/components/schemas/RecipeSale'
       responses:
-        201:
+        '201':
           description: Reçete satışı başarıyla oluşturuldu
           content:
             application/json:
@@ -282,34 +202,29 @@ paths:
                 type: object
                 properties:
                   data:
-                    type: object
-                    properties:
-                      sale:
-                        $ref: '#/components/schemas/Sale'
-                      recipe:
-                        $ref: '#/components/schemas/Recipe'
-                      message:
-                        type: string
-        400:
-          description: Geçersiz istek
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Sale'
+        '400':
+          description: Geçersiz istek veya yetersiz stok
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        404:
-          description: Reçete bulunamadı
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        500:
-          description: Sunucu hatası
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Yetersiz stok veya geçersiz reçete"
 
   /api/v1/recipes/{id}:
+    get:
+      summary: Reçete detaylarını getir
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
     delete:
       summary: Reçete sil
       parameters:
@@ -335,7 +250,7 @@ paths:
 
   /api/v1/products/average-price:
     get:
-      summary: Ürün adına göre ortalama fiyat hesapla
+      summary: Ürünün ortalama ve FIFO maliyetini hesapla
       parameters:
         - name: name
           in: query
@@ -343,6 +258,12 @@ paths:
           schema:
             type: string
           description: Ürün adı
+        - name: quantity
+          in: query
+          required: false
+          schema:
+            type: number
+          description: Hesaplanacak miktar (opsiyonel)
       responses:
         '200':
           description: Başarılı
@@ -356,15 +277,16 @@ paths:
                     properties:
                       productName:
                         type: string
-                      averagePrice:
-                        type: number
-                        description: Stok ağırlıklı ortalama fiyat
                       totalStock:
                         type: number
-                        description: Toplam stok miktarı
-                      totalStockValue:
+                      averagePrice:
                         type: number
-                        description: Toplam stok değeri
+                      nextFIFOCost:
+                        type: number
+                      fifoValue:
+                        type: number
+                      fifoCost:
+                        type: number
         '400':
           description: Geçersiz istek
         '500':
@@ -407,7 +329,7 @@ components:
           type: number
           minimum: 0
 
-    Sale:
+    SaleInput:
       type: object
       required:
         - productId
@@ -416,14 +338,14 @@ components:
         - salePrice
         - customerName
         - customerPhone
+        - unitCost
       properties:
-        id:
-          type: integer
-          readOnly: true
         productId:
           type: integer
+          description: Ürün ID
         quantity:
           type: number
+          description: Satış miktarı
           minimum: 0
         saleDate:
           type: string
@@ -437,53 +359,56 @@ components:
           type: string
         note:
           type: string
+        unitCost:
+          type: number
+          minimum: 0
+        discount:
+          type: number
+          minimum: 0
+        vat:
+          type: number
+          minimum: 0
+
+    SaleResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        productId:
+          type: integer
         product:
-          allOf:
-            - $ref: '#/components/schemas/Product'
-            - readOnly: true
+          $ref: '#/components/schemas/Product'
+        quantity:
+          type: number
+        saleDate:
+          type: string
+          format: date-time
+        salePrice:
+          type: number
+        discount:
+          type: number
+        vat:
+          type: number
+        netPrice:
+          type: number
+        vatAmount:
+          type: number
+        totalPrice:
+          type: number
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        note:
+          type: string
+        unitCost:
+          type: number
         createdAt:
           type: string
           format: date-time
-          readOnly: true
         updatedAt:
           type: string
           format: date-time
-          readOnly: true
-        recipeId:
-          type: integer
-          format: uint
-          nullable: true
-        recipe:
-          $ref: '#/components/schemas/Recipe'
-          nullable: true
-        discount:
-          type: number
-          format: float64
-          minimum: 0
-          maximum: 100
-          default: 0
-          description: İskonto oranı (%)
-        vat:
-          type: number
-          format: float64
-          minimum: 0
-          default: 20
-          description: KDV oranı (%)
-        netPrice:
-          type: number
-          format: float64
-          readOnly: true
-          description: Net fiyat (iskonto düşülmüş)
-        vatAmount:
-          type: number
-          format: float64
-          readOnly: true
-          description: KDV tutarı
-        totalPrice:
-          type: number
-          format: float64
-          readOnly: true
-          description: Genel toplam (KDV dahil)
 
     StockMovement:
       type: object
@@ -524,32 +449,16 @@ components:
           readOnly: true
         saleId:
           type: integer
-        sale:
-          $ref: '#/components/schemas/Sale'
         stockMovementId:
           type: integer
-        stockMovement:
-          $ref: '#/components/schemas/StockMovement'
         usedQuantity:
           type: number
-          minimum: 0
-        description: |
-          FIFO mantığına göre kullanılan miktar.
-          Bir satışta birden fazla stok hareketi kullanılabilir.
-          Örnek: 16 adetlik satışta;
-          - İlk hareket: 10 adet (tamamı)
-          - İkinci hareket: 6 adet (kalan miktar)
-        createdAt:
-          type: string
-          format: date-time
-          readOnly: true
-        updatedAt:
-          type: string
-          format: date-time
-          readOnly: true
 
     Recipe:
       type: object
+      required:
+        - name
+        - recipeItems
       properties:
         id:
           type: integer
@@ -560,12 +469,110 @@ components:
           type: string
         outputQuantity:
           type: number
-          minimum: 0
         suggestedPrice:
           type: number
-          minimum: 0
-          description: Önerilen satış fiyatı
         recipeItems:
           type: array
           items:
-            $ref: '#/components/schemas/RecipeItem' 
+            $ref: '#/components/schemas/RecipeItem'
+
+    RecipeSale:
+      type: object
+      required:
+        - recipeId
+        - quantity
+        - saleDate
+        - salePrice
+      properties:
+        recipeId:
+          type: integer
+        quantity:
+          type: number
+          minimum: 0
+        saleDate:
+          type: string
+          format: date-time
+        salePrice:
+          type: number
+          minimum: 0
+        note:
+          type: string
+        discount:
+          type: number
+          minimum: 0
+        vat:
+          type: number
+          minimum: 0
+
+    RecipeItem:
+      type: object
+      required:
+        - productId
+        - quantity
+      properties:
+        productId:
+          type: integer
+        quantity:
+          type: number
+        description:
+          type: string
+
+    Response:
+      type: object
+      properties:
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/Sale'
+            - $ref: '#/components/schemas/Recipe'
+            - type: array
+              items:
+                oneOf:
+                  - $ref: '#/components/schemas/Sale'
+                  - $ref: '#/components/schemas/Recipe'
+        error:
+          type: string
+
+    Sale:
+      type: object
+      properties:
+        id:
+          type: integer
+        productId:
+          type: integer
+        recipeId:
+          type: integer
+        product:
+          $ref: '#/components/schemas/Product'
+        recipe:
+          $ref: '#/components/schemas/Recipe'
+        quantity:
+          type: number
+        saleDate:
+          type: string
+          format: date-time
+        salePrice:
+          type: number
+        discount:
+          type: number
+        vat:
+          type: number
+        netPrice:
+          type: number
+        vatAmount:
+          type: number
+        totalPrice:
+          type: number
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        note:
+          type: string
+        unitCost:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time 

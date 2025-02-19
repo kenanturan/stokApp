@@ -11,17 +11,15 @@ import (
 
 func InitDB() (*gorm.DB, error) {
 	log.Println("Veritabanı başlatılıyor...")
+
+	// SQLite bağlantısı
 	db, err := gorm.Open(sqlite.Open("stock.db"), &gorm.Config{})
 	if err != nil {
 		log.Printf("Veritabanı bağlantı hatası: %v", err)
 		return nil, err
 	}
 
-	// Debug modu aktif et
-	db = db.Debug()
-
-	log.Println("Tablolar oluşturuluyor...")
-	// Tabloları oluştur
+	// Auto Migration
 	err = db.AutoMigrate(
 		&models.Product{},
 		&models.Sale{},
@@ -31,10 +29,9 @@ func InitDB() (*gorm.DB, error) {
 		&models.RecipeItem{},
 	)
 	if err != nil {
-		log.Printf("AutoMigrate hatası: %v", err)
+		log.Printf("Migration hatası: %v", err)
 		return nil, err
 	}
-	log.Println("Tablolar başarıyla oluşturuldu")
 
 	return db, nil
 }
