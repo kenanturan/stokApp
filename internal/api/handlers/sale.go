@@ -23,6 +23,7 @@ type RecipeSaleInput struct {
 	Quantity  float64   `json:"quantity" binding:"required,gt=0"`
 	SaleDate  time.Time `json:"saleDate" binding:"required"`
 	SalePrice float64   `json:"salePrice" binding:"required,gt=0"`
+	UnitCost  float64   `json:"unitCost" binding:"required,gte=0"`
 	Note      string    `json:"note"`
 	Discount  float64   `json:"discount"`
 	VAT       float64   `json:"vat"`
@@ -310,6 +311,7 @@ func (h *SaleHandler) CreateRecipeSale(c *gin.Context) {
 		Quantity:  recipeSale.Quantity,
 		SaleDate:  recipeSale.SaleDate,
 		SalePrice: recipeSale.SalePrice,
+		UnitCost:  recipeSale.UnitCost,
 		Note:      recipeSale.Note,
 		Discount:  recipeSale.Discount,
 		VAT:       recipeSale.VAT,

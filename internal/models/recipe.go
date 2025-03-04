@@ -24,3 +24,14 @@ type RecipeItem struct {
 	Quantity    float64  `json:"quantity" binding:"required,gt=0"`
 	Description string   `json:"description"`
 }
+
+type RecipeSale struct {
+	RecipeID  uint      `json:"recipeId" binding:"required"`
+	Quantity  float64   `json:"quantity" binding:"required,gt=0"`
+	SaleDate  time.Time `json:"saleDate" binding:"required"`
+	SalePrice float64   `json:"salePrice" binding:"required,gt=0"`
+	UnitCost  float64   `json:"unitCost" binding:"required,gte=0"`
+	Note      string    `json:"note"`
+	Discount  float64   `json:"discount"`
+	VAT       float64   `json:"vat"`
+}

@@ -57,14 +57,3 @@ func (s *Sale) BeforeCreate(*gorm.DB) error {
 	s.CalculatePrices()
 	return nil
 }
-
-// RecipeSale struct'ı ekleyelim
-type RecipeSale struct {
-	RecipeID  uint      `json:"recipeId" binding:"required"`
-	Quantity  float64   `json:"quantity" binding:"required,gt=0"`
-	SaleDate  time.Time `json:"saleDate" binding:"required"`
-	SalePrice float64   `json:"salePrice" binding:"required,gt=0"`
-	Note      string    `json:"note"`
-	Discount  float64   `json:"discount"`
-	VAT       float64   `json:"vat"`
-}
