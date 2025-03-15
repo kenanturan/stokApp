@@ -5,11 +5,11 @@ info:
   description: Stok ve satış yönetimi API'si
 
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:3000
     description: Geliştirme sunucusu
 
 paths:
-  /api/v1/products:
+  /products:
     get:
       summary: Tüm ürünleri listele
       responses:
@@ -42,7 +42,7 @@ paths:
         '500':
           description: Sunucu hatası
 
-  /api/v1/products/{id}:
+  /products/{id}:
     delete:
       summary: Ürün sil
       parameters:
@@ -59,7 +59,7 @@ paths:
         '500':
           description: Sunucu hatası
 
-  /api/v1/sales:
+  /sales:
     get:
       summary: Tüm satışları listele
       responses:
@@ -92,7 +92,7 @@ paths:
                     type: string
                     example: "Yetersiz stok"
 
-  /api/v1/stock-movements:
+  /stock-movements:
     get:
       summary: Stok hareketlerini listele
       parameters:
@@ -133,7 +133,7 @@ paths:
         '500':
           description: Sunucu hatası
 
-  /api/v1/recipes:
+  /recipes:
     get:
       summary: Tüm reçeteleri listele
       responses:
@@ -161,7 +161,7 @@ paths:
         '201':
           description: Reçete başarıyla oluşturuldu
 
-  /api/v1/recipes/{id}/produce:
+  /recipes/{id}/produce:
     post:
       summary: Reçeteye göre üretim yap
       parameters:
@@ -184,7 +184,7 @@ paths:
                   type: string
                   format: date-time
 
-  /api/v1/sales/recipe:
+  /sales/recipe:
     post:
       summary: Reçete satışı oluştur
       requestBody:
@@ -216,7 +216,7 @@ paths:
                     type: string
                     example: "Yetersiz stok veya geçersiz reçete"
 
-  /api/v1/recipes/{id}:
+  /recipes/{id}:
     get:
       summary: Reçete detaylarını getir
       parameters:
@@ -248,7 +248,7 @@ paths:
         '500':
           description: Sunucu hatası
 
-  /api/v1/products/average-price:
+  /products/average-price:
     get:
       summary: Ürünün ortalama ve FIFO maliyetini hesapla
       parameters:
@@ -575,4 +575,4 @@ components:
           format: date-time
         updatedAt:
           type: string
-          format: date-time 
+          format: date-time

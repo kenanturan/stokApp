@@ -89,7 +89,7 @@ func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 func (h *ProductHandler) GetProducts(c *gin.Context) {
 	var products []models.Product
 
-	if err := h.db.Find(&products).Error; err != nil {
+	if err := h.db.Where("company_name != ?", "").Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ürünler listelenemedi"})
 		return
 	}
